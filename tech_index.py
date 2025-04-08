@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import pandas as pd
 
 def MA(stock_data,col_name,window):
     """
@@ -38,169 +39,113 @@ def nature_log(MA_1, MA_2):
 # log_result = nature_log(MA_1, MA_2)
 # print(log_result)
 
-
+# Assuming the Fuzzification function from the previous step is available:
 def Fuzzification(nature_log, fuzzi_parameter):
     """
     Fuzzification of the natural logarithm value based on Figure 1 definitions.
-
-    :param nature_log: The input value x (e.g., x = ln(MA_short / MA_long))
-    :param fuzzi_parameter: The fuzzification parameter w (must be positive)
-    :return: A dictionary containing the membership degrees for each fuzzy set 
-             {'NL', 'NM', 'NS', 'AZ', 'PS', 'PM', 'PL'}
+    (Implementation provided previously)
     """
     x = nature_log
     w = fuzzi_parameter
-
     if w <= 0:
         raise ValueError("fuzzi_parameter (w) must be positive")
-
     memberships = {}
-
-    # AZ (Around Zero)
-    if -w <= x <= w:
-        memberships['AZ'] = 1 - abs(x) / w
-    else:
-        memberships['AZ'] = 0.0
-
-    # PS (Positive Small)
-    if 0 <= x <= 2 * w:
-        memberships['PS'] = 1 - abs(x - w) / w
-    else:
-        memberships['PS'] = 0.0
-
-    # PM (Positive Medium)
-    if w <= x < 2 * w:
-        memberships['PM'] = (x - w) / w
-    elif 2 * w <= x <= 3 * w:
-        memberships['PM'] = (3 * w - x) / w
-    else:
-        memberships['PM'] = 0.0
+    # AZ
+    memberships['AZ'] = max(0.0, 1 - abs(x) / w) if -w <= x <= w else 0.0
+    # PS
+    memberships['PS'] = max(0.0, 1 - abs(x - w) / w) if 0 <= x <= 2 * w else 0.0
+    # PM
+    if w <= x < 2 * w: memberships['PM'] = (x - w) / w
+    elif 2 * w <= x <= 3 * w: memberships['PM'] = (3 * w - x) / w
+    else: memberships['PM'] = 0.0
+    # PL
+    if x < 2 * w: memberships['PL'] = 0.0
+    elif 2 * w <= x <= 3 * w: memberships['PL'] = (x - 2 * w) / w
+    else: memberships['PL'] = 1.0
+    # NS
+    memberships['NS'] = max(0.0, 1 - abs(x + w) / w) if -2 * w <= x <= 0 else 0.0
+    # NM
+    if -3 * w <= x < -2 * w: memberships['NM'] = (x + 3 * w) / w
+    elif -2 * w <= x <= -w: memberships['NM'] = (-w - x) / w
+    else: memberships['NM'] = 0.0
+    # NL
+    if x > -2 * w: memberships['NL'] = 0.0
+    elif -3 * w <= x <= -2 * w: memberships['NL'] = (-2 * w - x) / w
+    else: memberships['NL'] = 1.0
         
-    # PL (Positive Large)
-    if x < 2 * w:
-        memberships['PL'] = 0.0
-    elif 2 * w <= x <= 3 * w:
-        memberships['PL'] = (x - 2 * w) / w
-    else: # x > 3*w
-        memberships['PL'] = 1.0
-
-    # NS (Negative Small) - Mirror of PS
-    if -2 * w <= x <= 0:
-        memberships['NS'] = 1 - abs(x + w) / w
-    else:
-        memberships['NS'] = 0.0
-
-    # NM (Negative Medium) - Mirror of PM
-    if -3 * w <= x < -2 * w:
-        memberships['NM'] = (x + 3 * w) / w
-    elif -2 * w <= x <= -w:
-        memberships['NM'] = (-w - x) / w
-    else:
-        memberships['NM'] = 0.0
-        
-    # NL (Negative Large) - Mirror of PL
-    if x > -2 * w:
-        memberships['NL'] = 0.0
-    elif -3 * w <= x <= -2 * w:
-        memberships['NL'] = (-2 * w - x) / w
-    else: # x < -3*w
-        memberships['NL'] = 1.0
-        
-    # Ensure numerical precision doesn't create values slightly outside [0, 1]
     for key in memberships:
         memberships[key] = max(0.0, min(1.0, memberships[key]))
-
     return memberships
 
-# Example usage:
-# w_param = 0.01
-# x_input = 0.003
-# fuzzified_values = Fuzzification(x_input, w_param)
-# print(f"For x = {x_input} and w = {w_param}:")
-# print(fuzzified_values)
-# Expected output approx: {'AZ': 0.7, 'PS': 0.3, 'PM': 0.0, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
 
-# x_input_2 = 0.016
-# fuzzified_values_2 = Fuzzification(x_input_2, w_param)
-# print(f"\nFor x = {x_input_2} and w = {w_param}:")
-# print(fuzzified_values_2)
-# Expected output approx: {'AZ': 0.0, 'PS': 0.4, 'PM': 0.6, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-
-
-def rule_activation_rule1(fuzzified_input):
+def calculate_ed1(fuzzified_input):
     """
-    Determines the activation strength for the output fuzzy sets based on 
-    Rule 1 Group and the fuzzified input.
-
-    Rule 1 Group (from paper Eq. 7):
-    1: IF PS THEN BS
-    2: IF PM THEN BB
-    3: IF PL THEN SM
-    4: IF NS THEN SS
-    5: IF NM THEN SB
-    6: IF NL THEN BM
-    7: IF AZ THEN N
+    Calculates the excess demand ed1 based on the fuzzified input and 
+    Rule 1 Group using the formula from Eq. 8.
 
     :param fuzzified_input: A dictionary containing the membership degrees 
-                             for input fuzzy sets (e.g., output of Fuzzification function).
-                             Example: {'AZ': 0.7, 'PS': 0.3, 'PM': 0.0, ...}
-    :return: A dictionary where keys are the output fuzzy set labels 
-             (e.g., 'BS', 'N') and values are their corresponding activation strengths.
-             Only rules with activation > 0 are included.
+                             for input fuzzy sets (output of Fuzzification).
+                             Example: {'AZ': 0.7, 'PS': 0.3, ...}
+    :return: The calculated excess demand value ed1.
     """
-    
-    # Define the mapping from input fuzzy set (premise) to output fuzzy set (consequence)
-    # based on Rule 1 Group (Eq. 7)
-    rule_mapping = {
-        'PS': 'BS',
-        'PM': 'BB',
-        'PL': 'SM',
-        'NS': 'SS',
-        'NM': 'SB',
-        'NL': 'BM',
-        'AZ': 'N'
+
+    # Define the input fuzzy sets A_i (indices match paper's formula)
+    # A1=PS, A2=PM, A3=PL, A4=NS, A5=NM, A6=NL, A7=AZ
+    input_sets_ordered = ['PS', 'PM', 'PL', 'NS', 'NM', 'NL', 'AZ']
+
+    # Define the corresponding output centers c_i based on Rule 1 Group and Fig. 2
+    # Rule 1: IF PS THEN BS (c1=0.1)
+    # Rule 2: IF PM THEN BB (c2=0.4)
+    # Rule 3: IF PL THEN SM (c3=-0.2)
+    # Rule 4: IF NS THEN SS (c4=-0.1)
+    # Rule 5: IF NM THEN SB (c5=-0.4)
+    # Rule 6: IF NL THEN BM (c6=0.2)
+    # Rule 7: IF AZ THEN N  (c7=0)
+    output_centers = {
+        'PS': 0.1,  # c1
+        'PM': 0.4,  # c2
+        'PL': -0.2, # c3
+        'NS': -0.1, # c4
+        'NM': -0.4, # c5
+        'NL': 0.2,  # c6
+        'AZ': 0.0   # c7
     }
 
-    activated_outputs = {}
+    numerator = 0.0
+    denominator = 0.0
 
-    # Iterate through the input fuzzy sets and their membership degrees
-    for input_set, activation_strength in fuzzified_input.items():
-        # Check if the rule associated with this input set is activated
-        if activation_strength > 0:
-            # Find the corresponding output fuzzy set label from the rule mapping
-            if input_set in rule_mapping:
-                output_set_label = rule_mapping[input_set]
-                # Store the activation strength for this output set.
-                # If multiple rules conclude the same output set (not in this specific rule set,
-                # but possible in others), different fuzzy logic systems might handle it 
-                # differently (e.g., max, sum). Here, since each input maps to a unique 
-                # output in Rule 1 Group, we just assign it.
-                activated_outputs[output_set_label] = activation_strength
+    # Calculate sum(ci * mu_Ai(x)) and sum(mu_Ai(x))
+    for input_set_label in input_sets_ordered:
+        # Get membership degree mu_Ai(x) from the input dictionary
+        mu = fuzzified_input.get(input_set_label, 0.0) # Default to 0 if key not found
+        
+        # Get corresponding output center ci
+        c = output_centers.get(input_set_label) 
+        
+        if mu > 0 and c is not None: # Only consider activated rules
+            numerator += c * mu
+            denominator += mu
 
-    return activated_outputs
+    # Calculate ed1 using Eq. 8
+    if denominator == 0:
+        # If no rules were activated (e.g., input was way outside defined ranges)
+        # return 0 (Neutral)
+        ed1 = 0.0
+    else:
+        ed1 = numerator / denominator
 
-# Example usage (using the result from the previous Fuzzification example):
+    return ed1
 
-# Case 1: x = 0.003 -> fuzzified_input = {'AZ': 0.7, 'PS': 0.3, 'PM': 0.0, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-# fuzzified_input_1 = {'AZ': 0.7, 'PS': 0.3, 'PM': 0.0, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-# activated_rules_1 = rule_activation_rule1(fuzzified_input_1)
-# print(f"For fuzzified_input_1: {fuzzified_input_1}")
-# print(f"Activated output sets and strengths: {activated_rules_1}")
-# Expected output: {'N': 0.7, 'BS': 0.3} 
-# (Rule 7 'IF AZ THEN N' activated with 0.7, Rule 1 'IF PS THEN BS' activated with 0.3)
+# --- Example Usage ---
 
-# Case 2: x = 0.016 -> fuzzified_input = {'AZ': 0.0, 'PS': 0.4, 'PM': 0.6, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-# fuzzified_input_2 = {'AZ': 0.0, 'PS': 0.4, 'PM': 0.6, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-# activated_rules_2 = rule_activation_rule1(fuzzified_input_2)
-# print(f"\nFor fuzzified_input_2: {fuzzified_input_2}")
-# print(f"Activated output sets and strengths: {activated_rules_2}")
-# Expected output: {'BS': 0.4, 'BB': 0.6}
-# (Rule 1 'IF PS THEN BS' activated with 0.4, Rule 2 'IF PM THEN BB' activated with 0.6)
+# Define parameters
+# w_param = 0.01
 
-# Case 3: x = 0.02 -> fuzzified_input = {'AZ': 0.0, 'PS': 0.0, 'PM': 1.0, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-# fuzzified_input_3 = {'AZ': 0.0, 'PS': 0.0, 'PM': 1.0, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
-# activated_rules_3 = rule_activation_rule1(fuzzified_input_3)
-# print(f"\nFor fuzzified_input_3: {fuzzified_input_3}")
-# print(f"Activated output sets and strengths: {activated_rules_3}")
-# Expected output: {'BB': 1.0}
-# (Rule 2 'IF PM THEN BB' activated with 1.0)
+# Example 1: Input from previous step
+# x_input_1 = 0.003 
+# fuzzified_1 = Fuzzification(x_input_1, w_param) 
+# # fuzzified_1 is approx {'AZ': 0.7, 'PS': 0.3, 'PM': 0.0, 'PL': 0.0, 'NS': 0.0, 'NM': 0.0, 'NL': 0.0}
+# ed1_output_1 = calculate_ed1(fuzzified_1)
+# print(f"For x = {x_input_1}:")
+# print(f"  Fuzzified Input: {fuzzified_1}")
+# print(f"  Calculated ed1: {ed1_output_1:.4f}") # Expected: 0.0300
